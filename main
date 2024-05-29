@@ -1,0 +1,115 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
+	"strings"
+
+	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"github.com/joho/godotenv"
+)
+
+type weatherData struct {
+	Name       string  `json:"name"`
+	Timezone   float64 `json:"timezone"`
+	Visibility int     `json:"visibility"`
+	Main       struct {
+		Temp     float64 `json:"temp"`
+		Pressure int     `json:"pressure"`
+		Speed    int     `json:"speed"`
+	} `json:main"`
+	Wind struct {
+		Speed float64 `json:"speed"`
+		Gust  float64 `json:"gust"`
+		Deg   int     `json:"deg"`
+	} `json:wind"`
+}
+
+var city string
+
+var d weatherData
+
+var greetings = []string{"hello", "hi", "привет", "здравствуйте", "здарова", "че как", "добрый вечер", "добрый день", "доброе утро", "/start", "start", "старт", "расскажи", "Привет!", "help", "помощь"}
+
+var chooseBtn = tgbotapi.NewReplyKeyboard(
+	tgbotapi.NewKeyboardButtonRow(
+		tgbotapi.NewKeyboardButton("Москва"),
+		tgbotapi.NewKeyboardButton("Сочи"),
+		tgbotapi.NewKeyboardButton("Казань"),
+	),
+	tgbotapi.NewKeyboardButtonRow(
+		tgbotapi.NewKeyboardButton("Калининград"),
+		tgbotapi.NewKeyboardButton("Санкт-Петербург"),
+	),
+)
+
+func main() {
+	godotenv.Load()
+
+	bot, err := tgbotapi.NewBotAPI(os.Getenv("TOKEN"))
+	if err != nil {
+		fmt.Println(err)
+
+		log.Panic(err)
+	}
+
+	bot.Debug = true
+
+	log.Printf("Authorized on account %s", bot.Self.UserName)
+
+	u := tgbotapi.NewUpdate(0)
+	u.Timeout = 60
+
+	updates := bot.GetUpdatesChan(u)
+
+	for update := range updates {
+		city = update.Message.Text
+		if isMessageForMe(&update) {
+			msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Добрый вечер, я диспетчер!\nВ данном боте вы можете узнать состояние погоды в следующих городах на данную секунду времени! Для этого просто нажмите на интересующую вас кнопочку ниже.\nЕсли вы не нашли интересующий вас город, то можете просто напечатать его название и прислать мне!")
+			msg.ReplyMarkup = chooseBtn
+			bot.Send(msg)
+		} else {
+			d.Main.Pressure = 0
+			getWeather(update.Message.Text)
+
+			if d.Main.Pressure == 0 {
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Ошибка. Такой город не найден")
+				if _, err := bot.Send(msg); err != nil {
+					log.Panic(err)
+				}
+			} else {
+
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("В городе %s температура воздуха %.1f градусов цельсия", d.Name, d.Main.Temp))
+				if _, err := bot.Send(msg); err != nil {
+					log.Panic(err)
+				}
+			}
+		}
+	}
+}
+
+func isMessageForMe(update *tgbotapi.Update) bool {
+	for i, _ := range greetings {
+		if strings.ToLower(update.Message.Text) == greetings[i] {
+			return true
+		}
+	}
+	return false
+}
+
+func getWeather(city string) {
+
+	resp, err := http.Get(fmt.Sprintf("https://api.openweathermap.org/data/2.5/weather?q=%s&lang=ru&units=metric&appid=95d4c05b81485ab3b4565f4865fd5ba5", city))
+	if err != nil {
+		fmt.Println("1", err)
+	}
+	decode := json.NewDecoder(resp.Body).Decode(&d)
+
+	fmt.Println("resp: ", resp)
+	fmt.Println("decode: ", decode)
+	fmt.Println("d: ", d)
+
+}
